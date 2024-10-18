@@ -3,7 +3,7 @@
 使用rust实现pbft+dagblock的双层网络；dag网络数据达成共识后，传输到pbft网络进行再次共识。
 
 # 启动程序
-启动4个共识节点，4个普通节点的dag网络
+启动4个共识节点，4个节点的dag网络
 ```bash
 cargo run -- -n 4 -f 4
 ```
@@ -18,14 +18,23 @@ cargo test -p blockdag  -- --nocapture
 ```
 ## 测试单独用例
 测试单独用例，/blockdag/src/lib中tests模块，test_fig3可以切换为想要的测试名字
+
+
 ```bash
 cargo test -p blockdag  tests::test_fig3 -- --nocapture
-cargo test -p blockdag  tests::test_fig_x2 -- --nocapture
 ```
+<img src="../imgs/Fig.3.png" width="800px"/>
+
+```bash
+cargo test -p blockdag  tests::test_fig4 -- --nocapture
+```
+<img src="../imgs/Fig.4.png" width="800px"/>
+
 
 
 # 日志
 不同类型的日志：
+- ⛏️：dag网络挖矿
 - 💻: 客户端
 - 😃: 正常节点
 - 😈: 异常节点
@@ -40,29 +49,32 @@ cargo test -p blockdag  tests::test_fig_x2 -- --nocapture
 
 
 
-## 目录结构
+## 文件说明
 没有写注释的，可以忽略了
-src/consensus
-    message.rs
-    pbft.rs
-src/network
-   client.rs
-   launcher.rs
-   node.rs
-   server.rs
-   utils.rs
-src/main.rs
+blockdag/src/blockdag      
+    anticone.rs  anticone的相关计算函数  
+    block.rs  block相关操作，例如，获取分数最高的block，等；  
+    calcblue.rs  计算k-cluster，这里成为blue，不属于k-cluster的成为red；  
+    cardinality.rs  计算分数的辅助函数，  
+    dagsim.rs  向dag中添加block  
+    node.rs  节点的相关操作，例如，处理区块，添加区块等  
+blockdag/src/  
+    lib.rs  启动dag网络的所有节点，进行blockdag共识。  
+    sync.rs  向pbft网络发送数据，启动pbft共识  
 
-blockdag/src/blockdag  
-    anticone.rs
-    block.rs
-    calcblue.rs
-    cardinality.rs
-    dagsim.rs
-    node.rs
-blockdag/src/
-    lib.rs
-    sync.rs
+src/consensus  
+    message.rs  pbft网络信息类型  
+    pbft.rs  pbft状态  
+src/network  
+   client.rs  client的定义，以及功能实现
+   launcher.rs  节点启动
+   node.rs  节点定义  
+   server.rs  pbft功能实现
+   utils.rs  辅助函数  
+
+src/main.rs  程序启动文件  
+
+
 
 
 

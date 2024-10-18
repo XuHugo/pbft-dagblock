@@ -1,5 +1,5 @@
 use clap::{Arg, Command};
-use pbft_rust::network::launcher;
+use pbft_blockdag::network::launcher;
 fn main() {
     let matches = Command::new("xxxNetwork")
         .version("1.0.0")

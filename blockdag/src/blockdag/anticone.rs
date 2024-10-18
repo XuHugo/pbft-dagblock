@@ -21,7 +21,7 @@ use std::sync::{Arc, RwLock};
 use crate::blockdag::{append_maps, sorted_keys_by_height, step_one_past};
 use crate::blockdag::{Block, MaxMin, Node};
 
-const ANTICONE_MAX_ITERATION: i32 = 30;
+const ANTICONE_MAX_ITERATION: i32 = 30000;
 
 /// Function providing anti-cone calculations.
 ///
