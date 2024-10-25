@@ -34,7 +34,7 @@ pub fn start_consensus(id: u32) -> io::Result<()> {
 
     let request_msg = RequestMsg {
         operation: String::from("new block !!"),
-        time_stamp: time_stamp.timestamp_millis() as u64,
+        time_stamp: time_stamp.timestamp() as u64,
         client_id: 0,
         sequence_id: id,
         digest: String::new(),

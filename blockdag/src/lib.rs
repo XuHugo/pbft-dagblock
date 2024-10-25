@@ -335,6 +335,331 @@ pub fn start_nodes_dag(f: i32) {
     }
 }
 
+pub fn test_pfbf_dag() {
+    let _ = env_logger::try_init();
+
+    const TOTAL_NODES: i32 = 4; // how many nodes to simulate. each node is a thread spawn.
+    let blocks_generating: i32 = 100; // how many blocks mining for this test.
+    let blocks_one_time: i32 = 10; // how many blocks generating in one wait (loop).
+    const K: i32 = 3; // how many blocks generating in parallel.
+
+    println!(
+        "test_nodes_sync(): start. k={}, blocks={}, nodes={}",
+        K, blocks_generating, TOTAL_NODES
+    );
+
+    // important note: the token-ring locker must be drop as soon as possible by node.
+    let block_token_ring: Arc<RwLock<HashMap<String, Arc<RwLock<BlockRaw>>>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+    let mining_token_ring: Arc<RwLock<(i32, i32)>> = Arc::new(RwLock::new((0, 0)));
+    let blocks_generated = Arc::new(RwLock::new(0 as i32));
+
+    // block dispatcher
+    let mut thread_mpsc = vec![];
+
+    let latest_block_hash = Arc::new(AtomicIsize::new(-1));
+
+    let mut handles = vec![];
+
+    let (dispatcher_tx, dispatcher_rx) = mpsc::channel();
+
+    // nodes threads
+    let new_mining_start = Arc::new(AtomicBool::new(false));
+
+    for number in 0..TOTAL_NODES {
+        let new_mining_start_clone = Arc::clone(&new_mining_start);
+
+        let mining = Arc::clone(&mining_token_ring);
+        let blocks_generated = Arc::clone(&blocks_generated);
+
+        let (thread_sender, thread_receiver) = mpsc::channel();
+        thread_mpsc.push(thread_sender);
+
+        let dispatcher_tx_clone = dispatcher_tx.clone();
+        let latest_block_hash_clone = latest_block_hash.clone();
+
+        let handle = thread::spawn(move || {
+            let node = Node::init(&format!("node{}", number));
+            let mut node_w = node.write().unwrap();
+            node_add_block("Genesis", &Vec::new(), &mut node_w, K, true);
+            drop(node_w);
+
+            // block rx thread
+            let node_for_rx = Arc::clone(&node);
+            let _rx_handle = thread::spawn(move || {
+                let mut node_stash: HashMap<String, BlockRaw> = HashMap::new();
+                let node_w2 = node_for_rx.read().unwrap();
+                let _node_name = node_w2.name.clone();
+                drop(node_w2);
+
+                loop {
+                    let the_receive = thread_receiver.recv();
+                    if the_receive.is_err() {
+                        break;
+                    }
+                    let new_block = the_receive.unwrap();
+
+                    let mut node_w2 = node_for_rx.write().unwrap();
+
+                    // processing block propagation
+                    handle_block_rx(new_block, &mut node_w2, &mut node_stash, K);
+                    debug!("{}. size_of_stash={}", &node_w2, node_stash.len());
+                    drop(node_w2);
+
+                    //                        let random_sleep = rand::thread_rng().gen_range(1, 50);
+                    //                        thread::sleep(Duration::from_millis(random_sleep));
+                    //                        thread::sleep(Duration::from_millis(random_sleep));
+                }
+
+                //info!("{} rx thread exited", _node_name);
+            });
+
+            // block mining and tx thread
+            loop {
+                if new_mining_start_clone.load(Ordering::Relaxed) == false {
+                    thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+
+                let mut mining_lock = mining.write().unwrap();
+                if (*mining_lock).0 <= -1 {
+                    // log and exit thread.
+
+                    let node_w = node.read().unwrap();
+                    //info!("{} tx thread exited. height={},size_of_dag={},mining_lock={:?}. mined_blocks={}",
+                    //      node_w.name, node_w.height, node_w.size_of_dag, *mining_lock, node_w.mined_blocks);
+                    drop(mining_lock);
+
+                    if node_w.name == "node0" {
+                        dag_print(&node_w.dag);
+                        let blue_selection = dag_blue_print(&node_w.dag);
+                        info!("k={}, {}", K, &blue_selection);
+                    }
+
+                    break;
+                } else if (*mining_lock).0 == 0 {
+                    drop(mining_lock);
+                    continue;
+                }
+
+                let node_w = node.read().unwrap();
+                if node_w.height + 1 < (*mining_lock).1 as u64 {
+                    //info!("{} mining skip because low height: {}, need: {}", node_w.name, node_w.height, (*mining_lock).1);
+                    drop(mining_lock);
+                    drop(node_w);
+                    continue;
+                }
+
+                (*mining_lock).0 -= 1;
+                if (*mining_lock).0 == 0 {
+                    new_mining_start_clone.store(false, Ordering::Relaxed);
+                }
+
+                drop(mining_lock);
+                drop(node_w);
+
+                let mut node_w = node.write().unwrap();
+                debug!(
+                    "{} start mining on height: {}",
+                    node_w.name,
+                    node_w.height + 1
+                );
+
+                let mut blocks_generated_w = blocks_generated.write().unwrap();
+                *blocks_generated_w += 1;
+                let block_name = format!("{:04}", blocks_generated_w);
+                drop(blocks_generated_w);
+
+                let mut score_stpq = get_stpq(&node_w.tips);
+                score_stpq.truncate((K + 1) as usize);
+                let references_str = score_stpq.iter().map(|&(ref s, _, _)| s.as_ref()).collect();
+                node_add_block(&block_name, &references_str, &mut node_w, K, true);
+
+                // propagate this new mined block
+                {
+                    let new_mined_block = &node_w.dag.get(&block_name).unwrap().read().unwrap();
+                    let prev_names = new_mined_block
+                        .prev
+                        .iter()
+                        .map(|(k, _)| k.clone())
+                        .collect::<Vec<String>>();
+
+                    let new_block_raw = BlockRaw {
+                        name: block_name.clone().to_string(),
+                        height: new_mined_block.height,
+                        size_of_past_set: new_mined_block.size_of_past_set,
+                        prev: prev_names,
+                    };
+
+                    dispatcher_tx_clone.send(new_block_raw).unwrap();
+                }
+
+                latest_block_hash_clone
+                    .store(block_name.parse::<isize>().unwrap(), Ordering::Relaxed);
+                info!(
+                    "{} new mined block: {}. height={},size_of_dag={}. mined_blocks={}",
+                    node_w.name, block_name, node_w.height, node_w.size_of_dag, node_w.mined_blocks
+                );
+
+                node_w.mined_blocks += 1;
+
+                drop(node_w);
+
+                //                    if node_w.name == "node0" {
+                //                        dag_print(&node_w.dag);
+                //                    }
+            }
+
+            //info!("node {} tx thread exited", number);
+        });
+
+        handles.push(handle);
+    }
+
+    // wait a while for nodes thread start-up.
+    thread::sleep(Duration::from_millis(100));
+
+    let start = PreciseTime::now();
+    let time_stamp = chrono::Local::now().timestamp();
+    println!("🎮  >>>>>>>>>>>> start test timestamp:{:?}!!!", time_stamp);
+
+    // block dispatcher thread
+    let _dispatcher_handle = thread::spawn(move || {
+        let mut to_be_dispatched: HashMap<String, BlockRaw> = HashMap::new();
+        let mut dispatched: HashMap<String, HashMap<i32, bool>> = HashMap::new();
+
+        let mut latest_block_hash_copy: isize;
+        'dis_outer: loop {
+            let the_receive = dispatcher_rx.recv();
+            if the_receive.is_err() {
+                break;
+            }
+            let new_block = the_receive.unwrap() as BlockRaw;
+
+            info!(
+                "dispatcher recv block: {}. remaining queue size={}",
+                new_block.name,
+                to_be_dispatched.len()
+            );
+
+            let mut is_dispatched: HashMap<i32, bool> = HashMap::new();
+            for i in 0..TOTAL_NODES {
+                is_dispatched.insert(i, false);
+            }
+
+            dispatched.insert(new_block.name.clone(), is_dispatched);
+            to_be_dispatched.insert(new_block.name.clone(), new_block);
+
+            latest_block_hash_copy = latest_block_hash.load(Ordering::Relaxed);
+
+            // dispatching
+            let mut finished_block_list: Vec<String> = Vec::new();
+            let mut new_block_arriving = false;
+            for (name, block) in &to_be_dispatched {
+                let mut is_dispatched_clone;
+                {
+                    let is_dispatched = dispatched.get(name).unwrap();
+                    is_dispatched_clone = is_dispatched.clone();
+                    for (i, _) in is_dispatched {
+                        let number: usize = *i as usize;
+                        thread_mpsc[number].send(block.clone()).unwrap(); // this is supposed to be a blocking slow call, to simulate block sending via network.
+                        is_dispatched_clone.remove(&i);
+                        if latest_block_hash.load(Ordering::Relaxed) != latest_block_hash_copy {
+                            new_block_arriving = true;
+                            break;
+                        }
+                    }
+                }
+
+                if is_dispatched_clone.len() == 0 {
+                    finished_block_list.push(name.clone());
+                }
+
+                dispatched.insert(name.clone(), is_dispatched_clone);
+
+                if new_block_arriving == true {
+                    break;
+                }
+            }
+
+            for finished_block in &finished_block_list {
+                to_be_dispatched.remove(finished_block);
+            }
+        }
+
+        info!("dispatcher thread exited.");
+    });
+
+    // main controller loop
+    let mut acc = 0;
+    let mut height = 0;
+    loop {
+        let mut mining = mining_token_ring.write().unwrap();
+        if (*mining).0 > 0 {
+            // miner too slow?
+            drop(mining);
+            //println!("miner too slow?");
+            thread::sleep(Duration::from_millis(10));
+            continue;
+        }
+
+        height += 1;
+        if acc + blocks_one_time <= blocks_generating {
+            (*mining).0 += blocks_one_time;
+            acc += blocks_one_time;
+        } else {
+            (*mining).0 += blocks_generating - acc;
+            acc += blocks_generating - acc;
+        }
+        (*mining).1 = height;
+        debug!(
+            "test_nodes_sync(): start mining {} blocks at height {}. mining_lock={:?}",
+            blocks_one_time, height, *mining
+        );
+        drop(mining);
+
+        new_mining_start.store(true, Ordering::Relaxed);
+
+        thread::sleep(Duration::from_millis(2500));
+
+        {
+            let blocks_generated_r = blocks_generated.read().unwrap();
+            if *blocks_generated_r >= 1 {
+                drop(blocks_generated_r);
+                println!("🛠️ send to consensus node!!!");
+                let _ = start_consensus(1);
+                // wait a while for nodes complete propagation.
+                println!(
+                    "\npreparing to terminate. wait 1 second for nodes complete propagation....\n"
+                );
+                thread::sleep(Duration::from_millis(1000));
+
+                let mut mining = mining_token_ring.write().unwrap();
+                (*mining).0 = -1; // ask nodes stop and exit.
+                drop(mining);
+
+                new_mining_start.store(true, Ordering::Relaxed);
+
+                break;
+            }
+        }
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let propagation = block_token_ring.read().unwrap();
+    // println!(
+    //     "test_nodes_performance(): done. block propagation hashmap remaining size: {}",
+    //     propagation.len()
+    // );
+
+    println!("========================test done.==================================");
+
+    assert_eq!(2 + 2, 4);
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -360,12 +685,12 @@ mod tests {
     use crate::blockdag::{BlockRaw, Node};
 
     #[test]
-    fn test_fig3() {
+    fn test_fig0() {
         let k: i32 = 3;
 
         let _ = env_logger::try_init();
 
-        let node = Node::init("fig3");
+        let node = Node::init("fig0");
 
         let mut node_w = node.write().unwrap();
 
@@ -403,12 +728,12 @@ mod tests {
     }
 
     #[test]
-    fn test_fig4() {
+    fn test_fig1() {
         let k: i32 = 3;
 
         let _ = env_logger::try_init();
 
-        let node = Node::init("fig4");
+        let node = Node::init("fig1");
 
         let mut node_w = node.write().unwrap();
 
@@ -1205,7 +1530,7 @@ mod tests {
     fn test_nodes_performance() {
         let _ = env_logger::try_init();
 
-        const TOTAL_NODES: i32 = 100; // how many nodes to simulate. each node is a thread spawn.
+        const TOTAL_NODES: i32 = 4; // how many nodes to simulate. each node is a thread spawn.
         let blocks_generating: i32 = 1000; // how many blocks mining for this test.
         let blocks_one_time: i32 = 4; // how many blocks generating in one wait (loop).
         const K: i32 = 3; // how many blocks generating in parallel.
@@ -1517,15 +1842,19 @@ mod tests {
         }
 
         let propagation = block_token_ring.read().unwrap();
-        println!(
-            "test_nodes_sync(): done. block propagation hashmap remaining size: {}",
-            propagation.len()
-        );
+        // println!(
+        //     "test_nodes_performance(): done. block propagation hashmap remaining size: {}",
+        //     propagation.len()
+        // );
 
         let end = PreciseTime::now();
         let d = start.to(end);
         let total_time_used = d.num_milliseconds() as f64;
-
+        println!("========================test done.==================================");
+        println!(
+            "test_nodes_performance(): start. k={}, blocks={}, nodes={}",
+            K, blocks_generating, TOTAL_NODES
+        );
         println!("total time used: {} (ms)", total_time_used - 1000.0);
 
         assert_eq!(2 + 2, 4);

@@ -115,14 +115,14 @@ pub fn dag_blue_print(dag: &HashMap<String, Arc<RwLock<Block>>>) -> String {
         if block.is_some() {
             let block = block.unwrap().read().unwrap();
             if block.is_blue {
-                if total_blues <= 1000 {
+                if total_blues <= 10000 {
                     formatted_info.push_str(&format!("{},", name));
                 }
                 total_blues += 1;
             }
         }
     }
-    if total_blues >= 1000 {
+    if total_blues >= 10000 {
         formatted_info.push_str("...");
     }
     formatted_info.push_str(&format!("}} total={}/{}", total_blues, dag.len()));

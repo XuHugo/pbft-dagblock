@@ -1,5 +1,6 @@
+use blockdag::test_pfbf_dag;
 use clap::{Arg, Command};
-use pbft_blockdag::network::launcher;
+use pbft_blockdag::network::launcher::{self, test_double_pbft};
 fn main() {
     let matches = Command::new("xxxNetwork")
         .version("1.0.0")
@@ -36,4 +37,9 @@ fn main() {
 
     //dag nodes network
     blockdag::start_nodes_dag(f as i32);
+
+    //test times
+    //test_double_pbft();
+    //launcher::start_nodes_pbft(4).unwrap();
+    //test_pfbf_dag();
 }

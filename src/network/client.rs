@@ -50,6 +50,8 @@ async fn client_handle_req(
     client_data: Data<Client>,
 ) -> impl Responder {
     println!("[💻 Client] Received RequestMsg: {:?}", request_msg);
+    let time_stamp = chrono::Local::now().timestamp();
+    println!("🎮  >>>>>>>>>>>> start test timestamp:{:?}!!!", time_stamp);
     let server_table = &client_data.server_table;
     let client = reqwest::Client::new();
 
@@ -102,6 +104,11 @@ async fn client_handle_reply(
     client_data: Data<Client>,
 ) -> impl Responder {
     println!("[💻 Client] Received ReplyMsg: {:?}", reply_msg);
+    let time_stamp = chrono::Local::now().timestamp();
+    println!(
+        "🎮  <<<<<<<<<<<<<<<<<< end test timestamp:{:?}!!!",
+        time_stamp
+    );
     let n = client_data.n;
     let reply_msg = reply_msg.into_inner();
     client_data
@@ -150,10 +157,7 @@ pub fn start_new_block() {
         let ten_s = time::Duration::from_secs(10);
         loop {
             thread::sleep(ten_s);
-            print!(
-                ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>new block:{:?}",
-                id
-            );
+            print!("@@@@@@@@@@@@@@ new block:{:?} \n", id);
             if let Err(e) = start_consensus(id) {
                 eprintln!("Client failed to new block : {}", e);
             }
@@ -168,7 +172,7 @@ pub fn start_consensus(id: u32) -> io::Result<()> {
 
     let request_msg = crate::consensus::message::RequestMsg {
         operation: String::from("new block !!"),
-        time_stamp: time_stamp.timestamp_millis() as u64,
+        time_stamp: time_stamp.timestamp() as u64,
         client_id: 0,
         sequence_id: id,
         digest: String::new(),
@@ -191,4 +195,19 @@ pub fn start_consensus(id: u32) -> io::Result<()> {
         }
         return Ok(());
     })
+}
+
+pub fn test_new_block_for_doublepbft() {
+    let mut id = 0;
+    let ten_s = time::Duration::from_secs(6);
+
+    while id < 2 {
+        thread::sleep(ten_s);
+        print!("@@@@@@@@@@@@ send new block:{:?} \n", id);
+        if let Err(e) = start_consensus(id) {
+            eprintln!("Client failed to new block : {}", e);
+        }
+
+        id = id + 1;
+    }
 }
