@@ -34,12 +34,32 @@ fn main() {
 
     //pbft nodes network
     launcher::start_nodes_pbft(n).unwrap();
-
     //dag nodes network
     blockdag::start_nodes_dag(f as i32);
 
-    //test times
-    //test_double_pbft();
-    //launcher::start_nodes_pbft(4).unwrap();
-    //test_pfbf_dag();
+    //test1 times
+    //test_double_pbft(50);
+    //test2 times
+    //test_dag_pbft(50);
+}
+
+#[cfg(test)]
+mod tests {
+    use blockdag::test_pfbf_dag;
+    use pbft_blockdag::network::launcher::{self, test_double_pbft, test_single_pbft};
+
+    #[test]
+    fn test_d_pbft() {
+        test_double_pbft(4);
+    }
+    #[test]
+    fn test_pbft_dag() {
+        launcher::start_nodes_pbft(4).unwrap();
+        test_pfbf_dag(4);
+    }
+}
+
+fn test_dag_pbft(n: u32) {
+    launcher::start_nodes_pbft(n / 2).unwrap();
+    test_pfbf_dag(n);
 }

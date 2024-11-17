@@ -335,13 +335,13 @@ pub fn start_nodes_dag(f: i32) {
     }
 }
 
-pub fn test_pfbf_dag() {
+pub fn test_pfbf_dag(_n: u32) {
     let _ = env_logger::try_init();
 
-    const TOTAL_NODES: i32 = 4; // how many nodes to simulate. each node is a thread spawn.
-    let blocks_generating: i32 = 100; // how many blocks mining for this test.
+    const TOTAL_NODES: i32 = 20; // how many nodes to simulate. each node is a thread spawn.
+    let blocks_generating: i32 = 50; // how many blocks mining for this test.
     let blocks_one_time: i32 = 10; // how many blocks generating in one wait (loop).
-    const K: i32 = 3; // how many blocks generating in parallel.
+    const K: i32 = 4; // how many blocks generating in parallel.
 
     println!(
         "test_nodes_sync(): start. k={}, blocks={}, nodes={}",
@@ -620,27 +620,36 @@ pub fn test_pfbf_dag() {
 
         new_mining_start.store(true, Ordering::Relaxed);
 
-        thread::sleep(Duration::from_millis(2500));
+        //add times
+        //thread::sleep(Duration::from_millis(2500));
 
         {
             let blocks_generated_r = blocks_generated.read().unwrap();
-            if *blocks_generated_r >= 1 {
-                drop(blocks_generated_r);
+            //if *blocks_generated_r >= blocks_generating {
+            let mm = *blocks_generated_r % 50;
+            if (mm == 0) {
                 println!("🛠️ send to consensus node!!!");
-                let _ = start_consensus(1);
-                // wait a while for nodes complete propagation.
-                println!(
+                if _n >= 35 {
+                    thread::sleep(Duration::from_millis(300));
+                }
+
+                let _ = start_consensus((*blocks_generated_r / 50) as u32);
+                if *blocks_generated_r >= blocks_generating {
+                    drop(blocks_generated_r);
+                    // wait a while for nodes complete propagation.
+                    println!(
                     "\npreparing to terminate. wait 1 second for nodes complete propagation....\n"
                 );
-                thread::sleep(Duration::from_millis(1000));
+                    thread::sleep(Duration::from_millis(1000));
 
-                let mut mining = mining_token_ring.write().unwrap();
-                (*mining).0 = -1; // ask nodes stop and exit.
-                drop(mining);
+                    let mut mining = mining_token_ring.write().unwrap();
+                    (*mining).0 = -1; // ask nodes stop and exit.
+                    drop(mining);
 
-                new_mining_start.store(true, Ordering::Relaxed);
+                    new_mining_start.store(true, Ordering::Relaxed);
 
-                break;
+                    break;
+                }
             }
         }
     }
@@ -1530,7 +1539,7 @@ mod tests {
     fn test_nodes_performance() {
         let _ = env_logger::try_init();
 
-        const TOTAL_NODES: i32 = 4; // how many nodes to simulate. each node is a thread spawn.
+        const TOTAL_NODES: i32 = 50; // how many nodes to simulate. each node is a thread spawn.
         let blocks_generating: i32 = 1000; // how many blocks mining for this test.
         let blocks_one_time: i32 = 4; // how many blocks generating in one wait (loop).
         const K: i32 = 3; // how many blocks generating in parallel.

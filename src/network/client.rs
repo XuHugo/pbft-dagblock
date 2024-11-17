@@ -197,12 +197,16 @@ pub fn start_consensus(id: u32) -> io::Result<()> {
     })
 }
 
-pub fn test_new_block_for_doublepbft() {
+pub fn test_new_block_for_doublepbft(blocks: u32, n: u32) {
     let mut id = 0;
-    let ten_s = time::Duration::from_secs(6);
 
-    while id < 2 {
-        thread::sleep(ten_s);
+    let ten_s = time::Duration::from_millis(1000);
+
+    while id < blocks {
+        if n >= 25 {
+            thread::sleep(ten_s);
+        }
+
         print!("@@@@@@@@@@@@ send new block:{:?} \n", id);
         if let Err(e) = start_consensus(id) {
             eprintln!("Client failed to new block : {}", e);
